@@ -1,213 +1,174 @@
-const express = require("express");
+const mongoose = require("mongoose");
 const Product = require("../models/products");
+const { parseProductsCsv, validateProductRows, convertProductsToCsv } = require("../utils/csvUtils");
 
-async function createProduct(req, res) {
-    try {
+const fields = ["name", "description", "price", "category", "stock", "published"];
+const clean = (body = {}) => Object.fromEntries(fields.filter((key) => body[key] !== undefined).map((key) => [key, body[key]]));
+const validId = (id, res) => mongoose.isValidObjectId(id) || (res.status(400).json({ message: "Invalid product id." }), false);
 
-        if (req.user.role !== "admin") {
-            return res.status(403).json({
-                error: "You do not have permission to create a product"
-            });
-        }
-
-        const {
-            name,
-            description,
-            price,
-            category,
-            stock,
-            published
-        } = req.body;
-
-        const product = await Product.create({
-            name,
-            description,
-            price,
-            category,
-            stock,
-            published
-        });
-
-        res.status(201).json(product);
-
-    } catch (err) {
-        res.status(400).json({
-            error: err.message
-        });
-    }
+async function createProduct(req, res, next) {
+  try { return res.status(201).json({ message: "Product created.", product: await Product.create(clean(req.body)) }); }
+  catch (error) { return next(error); }
 }
 
-async function getAllProducts(req, res) {
-    try {
-
-        const { category, minPrice, maxPrice, search, tags } = req.query;
-        const filters = {};
-
-        if (category) filters.category = category;
-        if (req.user.role !== "admin") {
-            filters.published = true;
-        }
-
-        // Range filters (Price)
-        if (minPrice || maxPrice) {
-            filters.price = {};
-            if (minPrice) filters.price.$gte = Number(minPrice);
-            if (maxPrice) filters.price.$lte = Number(maxPrice);
-        }
-
-        // Partial Text Search (Regex)
-        if (search) {
-            filters.name = { $regex: search, $options: 'i' };
-        }
-
-        // Array Filtering (e.g., tags=['electronics', 'smart'])
-        if (tags) {
-            filters.tags = { $in: Array.isArray(tags) ? tags : [tags] };
-        }
-
-        let sortStr = 'createdAt'; // Default sorting
-        const allowedSortFields = ['price', 'createdAt'];
-
-        if (req.query.sort) {
-            const [field, order] = req.query.sort.split(',');
-            if (allowedSortFields.includes(field)) {
-                sortStr = order === 'desc' ? `-${field}` : field;
-            }
-        }
-
-        // let limit = 10; // Default limit
-        // if (req.query.limit) {
-        //     limit = Math.min(Number(req.query.limit), 100); // Max limit of 100
-        // }
-
-        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-        let limit = parseInt(req.query.limit, 10) || 10;
-
-        // Hard cap the limit to protect database performance
-        const MAX_LIMIT = 100;
-        if (limit > MAX_LIMIT) limit = MAX_LIMIT;
-
-        const skip = (page - 1) * limit;
-
-
-        const products = await Product.find(filters).sort(sortStr).limit(limit).skip(skip);
-        res.status(200).json(products);
-
-        if (products.length === 0) {
-            return res.status(404).json({
-                error: "No products found"
-            });
-        }
-    } catch (err) {
-        res.status(500).json({
-            error: err.message
-        });
+async function getAllProducts(req, res, next) {
+  try 
+  {
+    const { category, minPrice, maxPrice, sort = "newest" } = req.query;
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 100);
+    const filter = !req.user || req.user.role !== "admin" ? { published: true } : {};
+    if (category) 
+    {
+      filter.category = new RegExp(`^${String(category).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
     }
+    if (minPrice !== undefined || maxPrice !== undefined) 
+    {
+      filter.price = {};
+      if (minPrice !== undefined)
+      {
+         filter.price.$gte = Number(minPrice);
+      }
+      if (maxPrice !== undefined)
+      { 
+        filter.price.$lte = Number(maxPrice);
+      }
+      if (Number.isNaN(filter.price.$gte) || Number.isNaN(filter.price.$lte))
+      {
+        return res.status(400).json({ message: "minPrice and maxPrice must be numbers." });
+      }
+    }
+    const sorts = { price_asc: { price: 1 }, price_desc: { price: -1 }, newest: { createdAt: -1 } };
+    if (!sorts[sort])
+    {
+      return res.status(400).json({ message: "sort must be price_asc, price_desc, or newest." });
+    }
+    const [products, totalProducts] = await Promise.all([Product.find(filter).sort(sorts[sort]).skip((page - 1) * limit).limit(limit), Product.countDocuments(filter)]);
+    return res.json({ products, page, limit, totalProducts, totalPages: Math.ceil(totalProducts / limit) });
+  } 
+  catch(error) 
+  { 
+    return next(error); 
+  }
 }
 
-async function getProductById(req, res) {
-    try {
-        const product = await Product.findById(req.params.id);
-        if (!product) {
-            return res.status(404).json({
-                error: "Product not found"
-            });
-        }
-        if (product.published === false && req.user.role !== "admin") {
-            return res.status(403).json({
-                error: "You do not have permission to view this product"
-            });
-        }
-        res.status(200).json(product);
-    } catch (err) {
-        res.status(500).json({
-            error: err.message
-        });
+async function getProductById(req, res, next) {
+  try {
+    if (!validId(req.params.id, res)) return;
+    const product = await Product.findById(req.params.id);
+    if (!product || (!product.published && (!req.user || req.user.role !== "admin")))
+    {
+       return res.status(404).json({ message: "Product not found." });
     }
+    return res.json({ product });
+  } catch (error)
+  {
+     return next(error); 
+  }
 }
 
-async function updateProduct(req, res) {
-    try {
-        const product = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true });
-
-        if (req.user.role !== "admin") {
-            return res.status(403).json({
-                error: "You do not have permission to update this product"
-            });
-        }
-
-        if (!product) {
-            return res.status(404).json({
-                error: "Product not found"
-            });
-        }
-
-        
-
-        res.status(200).json(product);
-    } catch (err) {
-        res.status(500).json({
-            error: err.message
-        });
+async function updateProduct(req, res, next) 
+{
+  try {
+    if (!validId(req.params.id, res)) return;
+    const product = await Product.findByIdAndUpdate(req.params.id, clean(req.body), { new: true, runValidators: true });
+    if (!product)
+    {
+       return res.status(404).json({ message: "Product not found." });
     }
+    return res.json({ message: "Product updated.", product });
+  } 
+  catch (error)
+  {
+     return next(error); 
+  }
 }
 
-async function patchProduct(req, res) {
-    try {
-        const product = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true });
-
-        if (req.user.role !== "admin") {
-            return res.status(403).json({
-                error: "You do not have permission to update this product"
-            });
-        }
-
-        if (!product) {
-            return res.status(404).json({
-                error: "Product not found"
-            });
-        }
-
-        
-
-        res.status(200).json(product);
-    } catch (err) {
-        res.status(500).json({
-            error: err.message
-        });
+async function deleteProduct(req, res, next) {
+  try {
+    if (!validId(req.params.id, res)) return;
+    const product = await Product.findByIdAndDelete(req.params.id);
+    if (!product)
+    {
+       return res.status(404).json({ message: "Product not found." });
     }
+    return res.json({ message: "Product deleted." });
+  } 
+  catch (error) 
+  { 
+    return next(error); 
+  }
 }
 
-
-async function deleteProduct(req, res) {
-    try {
-        const product = await Product.findByIdAndDelete(req.params.id);
-        if (!product) {
-            return res.status(404).json({
-                error: "Product not found"
-            });
-        }
-
-        if (req.user.role !== "admin") {
-            return res.status(403).json({
-                error: "You do not have permission to delete this product"
-            });
-        }
-
-        res.status(200).json(product);
-    } catch (err) {
-        res.status(500).json({
-            error: err.message
-        });
+const changePublication = (published) => async (req, res, next) => {
+  try {
+    if (!validId(req.params.id, res)) return;
+    const product = await Product.findByIdAndUpdate(req.params.id, { published }, { new: true, runValidators: true });
+    if (!product)
+    {
+       return res.status(404).json({ message: "Product not found." });
     }
+    return res.json({ message: `Product ${published ? "published" : "unpublished"}.`, product });
+  } 
+  catch (error) 
+  { 
+    return next(error); 
+  }
+};
+
+async function importProducts(req, res, next) {
+  try {
+    if (!req.file) 
+    {
+      return res.status(400).json({ message: "Attach a CSV file in the file field." });
+    }
+    const validation = validateProductRows(parseProductsCsv(req.file.buffer));
+    if (!validation.valid) 
+    {
+      return res.status(400).json({ message: "CSV validation failed. No products were imported.", errors: validation.errors });
+    }
+    const products = await Product.insertMany(validation.products, { ordered: true });
+    return res.status(201).json({ message: "Products imported.", count: products.length, products });
+  } 
+  catch (error) 
+  { 
+    return next(error); 
+  }
 }
 
+async function exportProducts(req, res, next) {
+  try 
+  {
+    const products = await Product.find().select("name description price category stock published").sort({ createdAt: -1 }).lean();
+    return res.attachment("products.csv").type("text/csv").send(convertProductsToCsv(products));
+  } 
+  catch (error) 
+  { 
+    return next(error); 
+  }
+}
 
-module.exports = {
-    createProduct,
-    getAllProducts,
-    getProductById,
-    updateProduct,
-    patchProduct,
-    deleteProduct
+async function deleteAllProducts(req, res, next) {
+  try 
+  {
+    const result = await Product.deleteMany({});
+    return res.json({ message: "All products deleted.", count: result.deletedCount });
+  } 
+  catch (error) 
+  { 
+    return next(error); 
+  }
+}
+
+module.exports = { 
+  createProduct, 
+  getAllProducts, 
+  getProductById, 
+  updateProduct, 
+  deleteProduct, 
+  publishProduct: changePublication(true), 
+  unpublishProduct: changePublication(false), 
+  importProducts, 
+  exportProducts ,
+  deleteAllProducts
 };

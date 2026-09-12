@@ -11,7 +11,6 @@ const transporter = nodemailer.createTransport({
 });
 
 async function sendMail({ to, subject, text, html }) {
-
     const mailOptions = {
         from: process.env.SMTP_USER,
         to,
@@ -19,9 +18,7 @@ async function sendMail({ to, subject, text, html }) {
         text,
         html
     };
-
     const info = await transporter.sendMail(mailOptions);
-
     return info;
 }
 

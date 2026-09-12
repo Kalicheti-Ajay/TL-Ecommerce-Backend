@@ -1,36 +1,27 @@
 const mongoose = require("mongoose");
-
 const userSchema = new mongoose.Schema(
     {
-        name: {
-            type: String,
-            required: true
-        },
-
-        email: {
-            type: String,
+        name: { 
+            type: String, 
             required: true,
-            unique: true
-        },
+             trim: true 
+            },
+        email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+        role: { type: String, enum: ["admin", "user"], default: "user" },
 
-        role: {
-            type: String,
-            required: true
-        },
 
-        experience: {
-            type: String,
-            required: true
-        },
 
         password: {
             type: String,
-            required: true
+            required: true,
+            select: false
         },
         resetPasswordOtp: {
             type: String,
             default: null
         },
+
+
 
         resetPasswordOtpExpiry: {
             type: Date,
@@ -41,13 +32,10 @@ const userSchema = new mongoose.Schema(
             type: Boolean,
             default: false
         }
-
-
-
     },
     {
         timestamps: true
     }
 );
 
-module.exports = mongoose.model("User", userSchema);
+module.exports = mongoose.model("User",userSchema);

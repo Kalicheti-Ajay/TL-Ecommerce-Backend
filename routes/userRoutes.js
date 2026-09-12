@@ -1,19 +1,11 @@
 const express = require("express");
-
-const {
-    register,
-    login,
-    forgotPassword,
-    verifyOtp,
-    resetPassword
-} = require("../controllers/userController");
+const {authenticate, authorize} = require("../middleware/middleware");
+const {register,login,listUsers,updateUserRole} = require("../controllers/userController");
 
 const router = express.Router();
-
 router.post("/register",register);
 router.post("/login",login);
-router.post("/forgot-password",forgotPassword);
-router.post("/verify-otp",verifyOtp);
-router.post("/reset-password",resetPassword);
+router.get("/users",authenticate,authorize("admin"),listUsers);
+router.patch("/users/:id/role",authenticate,authorize("admin"),updateUserRole);
 
 module.exports = router;
