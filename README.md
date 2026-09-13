@@ -10,6 +10,10 @@ Node.js, Express, MongoDB, Mongoose, JWT, role-based authorization, product CRUD
 
 Base URL: `http://localhost:3000`
 
+Swagger UI: `http://localhost:3000/api-docs`
+
+Open Swagger UI after starting the server to browse and test every endpoint. Use the **Authorize** button to enter a JWT as `Bearer <token>` after logging in.
+
 ## Insomnia test sequence
 
 For authenticated routes add header `Authorization: Bearer <token>`. Registering with `role: "admin"` is intentionally enabled for this classroom/demo project, so an admin can be bootstrapped without manually editing MongoDB. In a production app, admin creation should be restricted to a server-side seed process.

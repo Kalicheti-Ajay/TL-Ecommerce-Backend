@@ -1,12 +1,15 @@
 require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
+const swaggerUi = require("swagger-ui-express");
 const productRoutes = require("./routes/productRoutes");
 const userRoutes = require("./routes/userRoutes");
+const swaggerDocument = require("./swagger");
 
 const app = express();
 app.use(express.json());
 app.get("/", (req, res) => res.json({ message: "E-Commerce API is running." }));
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 app.use("/api/products", productRoutes);
 app.use("/api/auth", userRoutes);
 
